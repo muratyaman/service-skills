@@ -1,6 +1,6 @@
 from aiohttp import web
 import argparse
-from service_skills import Api
+from service_skills.api import Api
 from service_skills.routes import setup_routes
 from service_skills.config import get_config
 from service_skills.db import get_db

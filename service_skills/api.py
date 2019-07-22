@@ -31,13 +31,16 @@ class Api:
         }
         return web.json_response(data)
 
-    async def profiles_create(self, request):
+    async def profiles_upsert(self, request):
         # user_id, skills
         params = request.json()
-        user_id = params['user_id']
+        user_id = request.match_info.get('user_id', '')
+        if 'user_id' in params:
+            user_id = params['user_id']
         found = self.db.profiles_retrieve(user_id)
         if found:
-            result = self.db.profiles_update(user_id, params)
+            change = {'skills': params['skills']}
+            result = self.db.profiles_update(user_id, change)
         else:
             result = self.db.profiles_create(params)
         data = {
@@ -46,8 +49,11 @@ class Api:
         }
         return web.json_response(data)
 
+    async def profiles_create(self, request):
+        return self.profiles_upsert(request)
+
     async def profiles_retrieve(self, request):
-        user_id = request.match_info.get('user_id', 'n/a')
+        user_id = request.match_info.get('user_id', '')
         profile = self.db.profiles_retrieve(user_id)
         data = {
             'data': profile,
@@ -56,20 +62,7 @@ class Api:
         return web.json_response(data)
 
     async def profiles_update(self, request):
-        user_id = request.match_info.get('user_id', 'n/a')
-        params = request.json()
-        skills = params['skills']  # array
-        change = {'skills': skills}
-        found = self.db.profiles_retrieve(user_id)
-        if found:
-            result = self.db.profiles_update(user_id, change)
-        else:
-            result = 0
-        data = {
-            'data': result,
-            'ts': nowf()
-        }
-        return web.json_response(data)
+        return self.profiles_upsert(request)
 
     async def profiles_delete(self, request):
         user_id = request.match_info.get('user_id', 'n/a')
@@ -79,3 +72,4 @@ class Api:
             'ts': nowf()
         }
         return web.json_response(data)
+

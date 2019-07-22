@@ -1,2 +1,2 @@
 #!/bin/bash
-python3 ./skills/main.py --port=11003
+python3 service_skills/main.py --port=11003
