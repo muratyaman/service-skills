@@ -1,7 +1,43 @@
 from aiohttp import web
-from service_skills.helpers import nowf
-from service_skills.config import Config
-from service_skills.db import Db
+import logging
+
+from .helpers import nowf
+from .config import Config
+from .db import Db
+
+
+def log_request(request, ext=''):
+    m = '{} {} {}'.format(request.method, request.path, ext)
+    #logging.info(m)
+    print(m)
+
+
+def nz(obj, prop, default=None, same_type_var=''):
+    result = default
+    if obj is not None:
+        if isinstance(obj, object):
+            if prop in obj:
+                if isinstance(obj[prop], type(same_type_var)):
+                    result = obj[prop]
+    return result
+
+
+def validate_user_id(user_id=''):
+    error = 'user_id required'
+    if user_id is not None:
+        if isinstance(user_id, str):
+            if user_id != '':
+                error = None
+    return error
+
+
+def validate_skills(skills):
+    error = 'skills required'
+    if skills is not None:
+        if isinstance(skills, list):
+            if len(skills):
+                error = None
+    return error
 
 
 class Api:
@@ -12,64 +48,105 @@ class Api:
         pass
 
     async def root(self, request):
-        data = {
+        log_request(request)
+        output = {
             'version': self.config.version,
             'ts': nowf()
         }
-        return web.json_response(data)
+        return web.json_response(output)
 
     async def profiles_search(self, request):
-        skills_str = request.query['skills']
-        skills_list = skills_str.split(',')
-        params = {
-            'skills': {'$all': skills_list}
-        }
-        profiles = self.db.profiles_search(params)
-        data = {
-            'data': profiles,
-            'ts': nowf()
-        }
-        return web.json_response(data)
+        log_request(request)
+        params = {}
+        error = None
 
-    async def profiles_upsert(self, request):
-        # user_id, skills
-        params = request.json()
-        user_id = request.match_info.get('user_id', '')
-        if 'user_id' in params:
-            user_id = params['user_id']
-        found = self.db.profiles_retrieve(user_id)
-        if found:
-            change = {'skills': params['skills']}
-            result = self.db.profiles_update(user_id, change)
-        else:
-            result = self.db.profiles_create(params)
-        data = {
-            'data': result,
+        skills_str = nz(request.query, 'skills', '', '')
+        if skills_str != '':
+            skills_list = skills_str.split(',')
+            error = validate_skills(skills_list)
+            if error is None:
+                params = {'skills': {'$all': skills_list}}
+
+        profiles = self.db.profiles_search(params)
+        output = {
+            'data': profiles,
+            'error': error,
             'ts': nowf()
         }
-        return web.json_response(data)
+        return web.json_response(output)
+
+    async def profiles_upsert(self, body, user_id=''):
+        error = None
+        result = None
+
+        while True:
+            skills = nz(body, 'skills', [], [])
+            error = validate_skills(skills)
+            if error is not None:
+                break
+
+            if user_id == '':  # from URL
+                mode = 'create'
+                user_id = nz(body, 'user_id', '', '')
+            else:
+                mode = 'update'
+
+            error = validate_user_id(user_id)
+            if error is not None:
+                break
+
+            # still, run upsert() to avoid duplicates for same user_id
+            result = self.db.profiles_upsert(user_id, skills)
+            break  # run loop once
+        # end while
+
+        output = {
+            'data': result,
+            'error': error,
+            'ts': nowf()
+        }
+        return web.json_response(output)
 
     async def profiles_create(self, request):
-        return self.profiles_upsert(request)
+        log_request(request)
+        body = await request.json()
+        return await self.profiles_upsert(body)
+
+    async def profiles_update(self, request):
+        user_id = request.match_info.get('user_id', '')
+        log_request(request, 'user_id {}'.format(user_id))
+        body = await request.json()
+        return await self.profiles_upsert(body, user_id)
 
     async def profiles_retrieve(self, request):
         user_id = request.match_info.get('user_id', '')
-        profile = self.db.profiles_retrieve(user_id)
-        data = {
+        log_request(request, 'user_id {}'.format(user_id))
+        profile = None
+        error = validate_user_id(user_id)
+        if error is not None:
+            profile = self.db.profiles_retrieve(user_id)
+
+        output = {
             'data': profile,
+            'error': error,
             'ts': nowf()
         }
-        return web.json_response(data)
-
-    async def profiles_update(self, request):
-        return self.profiles_upsert(request)
+        return web.json_response(output)
 
     async def profiles_delete(self, request):
-        user_id = request.match_info.get('user_id', 'n/a')
-        result = self.db.profiles_delete(user_id)
-        data = {
+        log_request(request)
+        user_id = request.match_info.get('user_id', '')
+        result = False
+        if user_id != '':
+            result = self.db.profiles_delete(user_id)
+
+        output = {
             'data': result,
             'ts': nowf()
         }
-        return web.json_response(data)
+        return web.json_response(output)
+
+
+def get_api(config: Config, db: Db):
+    return Api(config, db)
 
